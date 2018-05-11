@@ -27,6 +27,7 @@ from kobuki import kobuki
 from turtlebot import turtlebot
 from decimal import Decimal
 from kdTree import kdTree
+from kdTree import RRTTree
 from kdTree import node
 from math import sqrt,cos,sin,atan2
 import random
@@ -36,37 +37,42 @@ from priodict import priorityDictionary
 from klampt.vis import gldraw
 
 
-EPSILON = 0.2
-DIM = 2
+EPSILON = 0.1
+DIM = 3
 V1 = [1,-1,0]
 V2 = [1,-1,0]
 r = 0.1
 dt = 0.01
-u1 = 0.5
+u1 = .5
 u2 = math.pi
+actions = [[1,1],[1,-1],[1,0],[-1,1],[-1,-1],[-1,0],[0,1],[0,-1],[0,0]]
 
 def RRTAlgorithm(source, goal, nodes):
     print source, goal
-
     robot.setConfig(source)
 
     #Step 1: initialise Kd Tree
-        
-    RRTree = node(source, [], None, True) #actual RRTree
-    Points = kdTree(None, None, 0, source, RRTree) #for storing generated points to increase the search complexity
-    current = source
+    sourceNode = node(source, [], None, True, source[0], source[1], source[2], source[3], source[4], source[5])
+    goalNode = node(goal, [], None, True, goal[0], goal[1], goal[2], goal[3], goal[4], goal[5])
+    RRTree = RRTTree(None, None, 0, source, sourceNode) #actual RRTree
+    Points = kdTree(None, None, 0, source, sourceNode) #for storing generated points to increase the search complexity
+    currentNode = sourceNode
     iterNumber = 1
-
-    while not check(current, goal) and not (iterNumber == nodes):
+    path = []
+    goalFlag = False
+    while not (iterNumber == nodes):
+        if check(currentNode.point, goalNode.point):
+            goalFlag = True
+            break 
         #Step 2: Generate random sample
 
-        #print ('iteration', iterNumber)
+        print ('iteration: ' + str(iterNumber))
         iterNumber = iterNumber + 1
         rand = [(-4) + (random.random() * 8), (-4) + (random.random() * 8), random.random() * 6.28319]
             
         #Step 3: Check for nearest neighbour
             
-        ret = Points.search(rand, 1000000, None, None, None, None, None)
+        ret = Points.search(rand, 10000000, None, None, None, None, None)
         nearest_neighbour = ret[1]
                 
         #Step 4: Check distance of nearest neighbour with the randomly generated sample. If its EPSILON distance away then add it in the tree else              #generate a new point in the direction of the random sample
@@ -74,132 +80,98 @@ def RRTAlgorithm(source, goal, nodes):
         new_point = next_point(nearest_neighbour, rand)
 
         if new_point != None:
-            nde = node(new_point, [], ret[2], True)
+            nde = node(new_point, [], ret[2], True, new_point[0], new_point[1], new_point[2], new_point[3], new_point[4], new_point[5])
             ret[2].add_child(nde)
             Points.insert(new_point, DIM, nde)
-            current = new_point
-            pnt = [int(new_point[0]), int (new_point[1]), int (new_point[2])]
+            currentNode = nde
+    if goalFlag:
+        print("Current Node: " + str(currentNode.parent.point))
+        while currentNode.parent != None:
+            path.append(currentNode)
+            currentNode = currentNode.parent
 
-                
-        #Step 5: collision check
-
-        '''if not checkCollision(nearest_neighbour, new_point):
-            nde = node(new_point, [], ret[2], True)
-            ret[2].add_child(nde)
-            Points.insert(new_point, DIM, nde)
-            current = new_point
-            pnt = [int(new_point[0]), int (new_point[1]), int (new_point[2])] '''
-
-    Points.print_tree()
-    tempPath = shortestPath(Points, goal, source)
-    print("---------------------------------------------------------------")
-    print("shortest path found", tempPath)
-    return tempPath
-
-def shortestPath(tree, start, end):
-    
-    path = []
-    #currentNode = node(start, [], None, True)
-    currentNode = start
-    #path.append(currentNode)
-    '''ret = tree.search(currentNode, 1000000, None, None, None, None, None)
-    path.append(ret[2].point)
-    currentNode = ret[2].point'''
-    currentNode = [currentNode[0], currentNode[1], currentNode[2]]
-    #print("node", currentNode)
-
-
-    while not check(currentNode, end):
-
-        #print("current: ", currentNode)
-        #currentNode = [currentNode[0], currentNode[1], currentNode[2]]
-        ret = tree.search(currentNode, 1000000, None, None, None, None, None)
-        #print("NN", ret[2].point)
-        point = [ret[2].point[0], ret[2].point[1], ret[2].point[2]]
-
-        if check(point, currentNode):
-            break
-           
-        else:
-            path.append(ret[2].point)
-            currentNode = ret[2].point
-            currentNode = [currentNode[0], currentNode[1], currentNode[2]]
-            #print("inside else")
-    print("Hello")
-    print("Path", path)
-    return path
+        print("shortest path found", path)
+        return path
+    else:
+        return None
 
 def check(point , goal): # checking if currently added node is at goal or not
-    if point[0] > goal[0]-1 and point[0] < goal[0]+1 and point[1] > goal[1]-1 and point[1] < goal[1]+1:
-        return True
-                	
+    d = dist(point, goal)
+    if d < EPSILON:
+        return True            	
     return False
 
 def dist(p1, p2): #returns euclid's distance between points p1 and p2
     return sqrt((p1[0] - p2[0]) * (p1[0] - p2[0]) + (p1[1] - p2[1]) * (p1[1] - p2[1]))
 
-def distance_matrice(p1, p2, dis): #returns point with at most epsilon distance from nearest neighbour in the direction of randomly generated point
+def distance_matrice(p1, p2, dis, dtheta): #returns point with at most epsilon distance from nearest neighbour in the direction of randomly generated point
 
-    theta = atan2(p2[1] - p1[1], p2[0] - p1[0])
-    return [p1[0] + dis * cos(theta), p1[1] + dis * sin(theta), p2[2]]
+    theta = dtheta
+    return [p1[0] + dis * cos(theta), p1[1] + dis * sin(theta), theta]
 
 def next_point(initialPos, randomPoint):
-    U = [[1,1],[1,-1],[1,0],[-1,1],[-1,-1],[-1,0],[0,1],[0,-1],[0,0]]
+    
     nn = initialPos
     new_point = []
     new_point_dist = []
     times = []
+    collisionFlag = False
+    distanceFlag = False
 
-    for i in range(len(U)):
+    for i in range(len(actions)):
 
         s = 0
         t = 0
+        theta = 0
         old_distance = dist(nn, randomPoint)
         initialPos = nn
+
         while s <= EPSILON and t != 16: 
 
             vis.lock()
             robot.setConfig(initialPos)
+            robot.velControlKin(actions[i][0]*u1, actions[i][1]*u2, dt)
             vis.unlock()
-            time.sleep(0.01)
 
-            s = s + dt*(U[i][0]*u1)
-            
-            robot.velControlKin(U[i][0]*u1, U[i][1]*u2, dt)
-        
             if not checkCollision():
                 collisionFlag = False
                 t = t + 1
-                n_p = distance_matrice(initialPos,randomPoint,s)
-                 
+                n_p = robot.getConfig()
             else:
                 collisionFlag = True
                 break
 
             if old_distance <= dist(n_p, randomPoint):
+                distanceFlag = True
                 break
             else:
+                distanceFlag = False
                 old_distance = dist(n_p,randomPoint) 
                 initialPos = n_p
 
-        #print("initialPos", initialPos)
-        times.append(t)
-        new_point.append(initialPos)
-        new_point_dist.append(dist(initialPos,randomPoint))
+        if t != 0:
+            
+            times.append(t)
+            new_point.append(n_p)
+            new_point_dist.append(dist(initialPos,randomPoint))
+        else:
+            break
 
     
     if not new_point or not new_point_dist:
         return None
     else:
         minInd = 0
+        print("new_point_dist", new_point_dist)
         minVal = min(new_point_dist)
+        print("minVal", minVal)
         for x in range(len(new_point_dist)):
             if minVal == new_point_dist[x]:
                 minInd = x
         np = new_point[minInd]
         np.insert(3, times[minInd])
-        np.insert(4, U[minInd][0])
-        np.insert(5, U[minInd][1])
+        np.insert(4, actions[minInd][0])
+        np.insert(5, actions[minInd][1])
         
         return np
     
@@ -288,84 +260,74 @@ if __name__ == "__main__":
     
     print("Starting.....")
     source = [0, 0, 0, 0, 0, 0]
-    goal = [-4, -4, 0, 0 , 0, 0]
+    goal = [3, -3.5, 0, 0 , 0, 0]
+    sourceCollisionFlag = False
+    goalCollisionFlag = False
+    successFlag = False
 
-    '''vis.lock()
-    robot.getConfig()
+    vis.lock()
+    robot.setConfig(source)
+    vis.unlock()
+    
+
+    if checkCollision():
+        sourceCollisionFlag = True
+    
+    vis.lock()
+    robot.setConfig(goal)
+    
     vis.unlock()
 
-    while s <= EPSILON and t != 16: 
-
-            vis.lock()
-            robot.setConfig(initialPos)
-            vis.unlock()
-            time.sleep(0.01)
-
-            s = s + dt*(U[i][0]*u1)
-            
-            robot.velControlKin(U[i][0]*u1, U[i][1]*u2, dt)
-        
-            if not checkCollision():
-                collisionFlag = False
-                t = t + 1
-                n_p = distance_matrice(initialPos,randomPoint,s)
-                 
-            else:
-                collisionFlag = True
-                break
-
-            if old_distance <= dist(n_p, randomPoint):
-                break
-            else:
-                old_distance = dist(n_p,randomPoint) 
-                initialPos = n_p'''
+    if checkCollision():
+        goalCollisionFlag = True
 
 
+    if not sourceCollisionFlag and not goalCollisionFlag:
+        path = RRTAlgorithm(source, goal, 6000)
+        if path != None:
+            print("Completed")
+            successFlag = True
+        else:
+            successFlag = False
+            print("Path Not Found!")
+    else:
+        successFlag = False
+        print("Source or Goal at collison!")
 
-    tree = RRTAlgorithm([0, 0, 0, 0, 0, 0], [-3, -3.5, 0, 0 , 0, 0], 2000)
-    print("Completed")
-    print(tree)
+    if successFlag:
+        waypoints = list(reversed(path))
 
-    waypoints = list(reversed(tree))
-    if waypoints[0] != [0, 0, 0, 0, 0, 0]:
-        waypoints.insert(0,[0, 0, 0, 0, 0, 0])
-
-    print("Robot Config", waypoints)
-
-    
-    vis.show()
-    for i in range(len(waypoints)-1):
-        
-        pt = waypoints[i+1]
-        t = 0
-
-        vis.lock()  
-        robot.setConfig(waypoints[i])
-        vis.unlock()
-        time.sleep(0.01)
-        
-        while t != pt[3]:
-            print(pt)
-            robot.velControlKin(pt[4]*u1, pt[5]*u2, dt)
-            t = t + 1
-            
+        for i in waypoints:
+            print(i.printNode())
             
 
-    simTime = 100
-    startTime = time.time()
-    oldTime = startTime
-    while vis.shown() and (time.time() - startTime < simTime):
         vis.lock()
-
-        q = robot.getConfig()
-        q2f = [ '{0:.2f}'.format(elem) for elem in q]
-        strng = "Robot configuration: " + str(q2f)
-        vis.addText("textConfig", strng)
-
-
+        vis.add("Initial", [source[0], source[1], 0.02])
+        vis.setAttribute("Initial", "size", 14)
+        vis.setColor("Initial",0, 0.4470, 0.7410)
+        vis.add("Goal", [goal[0], goal[1], 0.02])
+        vis.setAttribute("Goal", "size", 14)
+        vis.setColor("Goal", 0.8500, 0.3250, 0.0980)
         vis.unlock()
-        #changes to the visualization must be done outside the lock
-        time.sleep(0.01)
+
+        
+
+        vis.show()
+        time.sleep(15)
+        vis.lock()
+        robot.setConfig(waypoints[0].point)
+        vis.unlock()
+        for i in range(len(waypoints)-1):
+            prWaypnt = waypoints[i+1]
+            
+            for j in range(prWaypnt.t -1):
+                vis.lock()
+                robot.velControlKin(prWaypnt.u1*u1, prWaypnt.u2*u2, dt)
+                vis.unlock()
+                time.sleep(dt)    
+    
+
+    time.sleep(15)
     vis.clearText()
 
     print "Ending klampt.vis visualization."
